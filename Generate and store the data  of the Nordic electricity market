@@ -1,0 +1,357 @@
+import numpy as np
+import pandas as pd
+
+zone_names = ['DK1', 'DK2', 'FI', 'NO1', 'NO2', 'NO3', 'NO4', 'NO5', 'SE1', 'SE2', 'SE3', 'SE4']
+n_A = 12
+n_T = 24
+
+T = range(n_T)
+Area = range(n_A)
+
+#The real capacity and technical composition - from : ENTSO-E TYNDP 2024 + Nordic TSOs 2025
+zone_data = {
+    'DK1': {'P_max': 5200,  'load_peak': 2800, 'hydro': 0.05, 'nuclear': 0.00, 'gas': 0.35, 'wind_ror': 0.60},
+    'DK2': {'P_max': 6200,  'load_peak': 3800, 'hydro': 0.05, 'nuclear': 0.00, 'gas': 0.30, 'wind_ror': 0.65},
+    'FI':  {'P_max': 16200, 'load_peak': 13500,'hydro': 0.25, 'nuclear': 0.40, 'gas': 0.15, 'wind_ror': 0.20},
+    'NO1': {'P_max': 14500, 'load_peak': 4200, 'hydro': 0.98, 'nuclear': 0.00, 'gas': 0.00, 'wind_ror': 0.02},
+    'NO2': {'P_max': 11800, 'load_peak': 3100, 'hydro': 0.98, 'nuclear': 0.00, 'gas': 0.00, 'wind_ror': 0.02},
+    'NO3': {'P_max': 12800, 'load_peak': 3600, 'hydro': 0.98, 'nuclear': 0.00, 'gas': 0.00, 'wind_ror': 0.02},
+    'NO4': {'P_max': 10200, 'load_peak': 2200, 'hydro': 0.98, 'nuclear': 0.00, 'gas': 0.00, 'wind_ror': 0.02},
+    'NO5': {'P_max': 8800,  'load_peak': 1800, 'hydro': 0.98, 'nuclear': 0.00, 'gas': 0.00, 'wind_ror': 0.02},
+    'SE1': {'P_max': 13800, 'load_peak': 9200, 'hydro': 0.70, 'nuclear': 0.25, 'gas': 0.02, 'wind_ror': 0.03},
+    'SE2': {'P_max': 15200, 'load_peak': 10800,'hydro': 0.75, 'nuclear': 0.20, 'gas': 0.02, 'wind_ror': 0.03},
+    'SE3': {'P_max': 9800,  'load_peak': 13800,'hydro': 0.40, 'nuclear': 0.55, 'gas': 0.03, 'wind_ror': 0.02},
+    'SE4': {'P_max': 7200,  'load_peak': 6200, 'hydro': 0.25, 'nuclear': 0.65, 'gas': 0.05, 'wind_ror': 0.05},
+}
+
+# The ramping capability of each network injection - from: the proposal of PyPSA-Eur + Nordic TSOs 2023
+ramp_up_h   = {'hydro': 350, 'nuclear': 5,   'gas': 250, 'wind_ror': 9999}
+ramp_down_h = {'hydro': 250, 'nuclear': 5,   'gas': 180, 'wind_ror': 9999}
+ramp_up_d   = {'hydro':1200, 'nuclear': 20,  'gas': 600, 'wind_ror': 9999}
+ramp_down_d = {'hydro': 800, 'nuclear': 20,  'gas': 450, 'wind_ror': 9999}
+
+for a in Area:
+    name = zone_names[a]
+    s = zone_data[name]
+    total_flex = s['hydro'] + s['nuclear'] + s['gas']
+    if total_flex == 0: total_flex = 1
+    h, n, g = s['hydro'], s['nuclear'], s['gas']
+    
+    s['ramp_up_h_%']   = (h*ramp_up_h['hydro']   + n*ramp_up_h['nuclear']   + g*ramp_up_h['gas'])   / total_flex
+    s['ramp_down_h_%'] = (h*ramp_down_h['hydro'] + n*ramp_down_h['nuclear'] + g*ramp_down_h['gas']) / total_flex
+    s['ramp_up_d_%']   = (h*ramp_up_d['hydro']   + n*ramp_up_d['nuclear']   + g*ramp_up_d['gas'])   / total_flex
+    s['ramp_down_d_%'] = (h*ramp_down_d['hydro'] + n*ramp_down_d['nuclear'] + g*ramp_down_d['gas']) / total_flex
+    
+    s['P_max_MW'] = s['P_max']
+
+
+lines = [  # (from, to, capacity_MW)
+    (0,1,600,0), (0,10,700,1), (1,11,600,1), (11,10,7300,2), (10,9,7600,2), (9,8,7800,2),
+    (6,5,2000,3), (5,3,2500,3), (3,7,1800,3), (3,4,2200,3), (4,7,1600,3),
+    (6,8,700,4), (9,6,1500,4), (9,5,1700,4), (10,2,2050,4), (2,8,800,5), (10,3,2145,5)
+]
+
+ramping_groups = [  # (group_id, [line_idx], ramp_up_MW/h, ramp_down_MW/h)
+    (0, [0],               1200,  1200),
+    (1, [1,2],              700,   700),
+    (2, [3,4,5],           7600,  7600),
+    (3, [6,7,8,9,10],      2500,  2500),
+    (4, [11,12,13,16],     1800,  2200),  # NO-SE 
+    (5, [14,15],           1000,  1200),  # FI-SE
+]
+
+# The state of the previous day - from: history of Nord Pool 2024.1 + ENTSO-E MAF 2024
+prev_hour_injection = [-320,-800,800,-800,-100,110,920,-780,1240,-1380,720,-540] 
+prev_hour_injection = [x / 3 for x in prev_hour_injection]
+prev_day_avg_injection = [2800,3600,11000,11800,9800,10200,8800,7200,11500,12800,6800,5000] 
+prev_day_avg_injection = [x / 15 for x in prev_day_avg_injection]
+# prev_hour_flow = {((0,1),300), ((0,10),-400), ((1,11),200), ((11,10),-2500), ((10,9),-3800), ((9,8),-4200),
+#                   ((6,5),800), ((5,3),1200), ((3,7),-600), ((3,4),900), ((4,7),400),
+#                   ((6,8),600), ((9,6),-800), ((9,5),-900), ((10,2),-800), ((2,8),400), ((10,3),-1500)}
+# prev_hour_flow = {tuple(sorted(k)): v if k[0]<k[1] else -v for k,v in prev_hour_flow}
+prev_hour_flow = [ # t=-1 flow (MW, direction: from->to)
+    (0,1,300,0), (0,10,-400,1), (1,11,200,1), (11,10,-2500,2), (10,9,-3800,2), (9,8,-4200,2),
+    (6,5,800,3), (5,3,1200,3), (3,7,-600,3), (3,4,900,3), (4,7,400,3),
+    (6,8,600,4), (9,6,-800,4), (9,5,-900,4), (10,2,-800,4), (2,8,400,2), (10,3,-1500,2)
+]
+# ============================== 3. The number of each kind of orders ==============================
+np.random.seed(42)
+n_E_Supply = [max(8, int(zone_data[n]['P_max']/800)) for n in zone_names]
+n_E_Demand = [max(8, int(zone_data[n]['load_peak']/600)) for n in zone_names]
+n_PB_Supply = [np.random.randint(3,8) for _ in range(n_A)]
+n_RB_Supply = [np.random.randint(5,12) for _ in range(n_A)]
+n_FHB_Supply = [np.random.randint(2,6) for _ in range(n_A)]
+n_PB_Demand = [np.random.randint(3,7) for _ in range(n_A)]
+n_RB_Demand = [np.random.randint(5,10) for _ in range(n_A)]
+n_FHB_Demand = [np.random.randint(2,5) for _ in range(n_A)]
+
+# The number of total orders
+n_Demand = [n_E_Demand[a] + n_PB_Demand[a] + n_RB_Demand[a] + n_FHB_Demand[a] for a in Area]
+n_Supply = [n_E_Supply[a] + n_PB_Supply[a] + n_RB_Supply[a] + n_FHB_Supply[a] for a in Area]
+
+# ============================== 4. The generation of price-quantity pair related to the ramping ==============================
+# generate_prices (tech-aware)
+def generate_prices_tech(a, t, base_mean, role, size=1):
+    name = zone_names[a]
+    tech = zone_data[name]
+    factor = 1.6 if t in [8,18] else 1.3 if 7<=t<11 or 17<=t<21 else 0.85
+    if role == 'supply':
+        mean = base_mean * (0.5 if tech['hydro']>0.7 else 0.8 if tech['nuclear']>0.4 else 1.2)  #Low price for hydropower and stable price for nuclear power
+    else:
+        mean = base_mean * 1.1
+    prices = np.random.normal(mean * factor, base_mean*0.15, size)
+    return np.clip(prices, mean*0.6, mean*2.0)
+
+# Conservative peak-load operation in low-flexibility region (to model ramping costs)
+def generate_quantities(prices, base_mean, base_std, size, min_val, max_val, hour, block_bids=None, a=0):
+    quantities = np.random.normal(base_mean, base_std * 1.8, size)
+    noise = np.random.normal(0, base_std * 1.5, size)
+    name = zone_names[a]
+    ramp_h = zone_data[name]['ramp_up_h_%']
+    if ramp_h < 100 and (7 <= hour < 11 or 17 <= hour < 21):  # Peak-hour quantity discounting in low-flexibility zone (implicit ramping cost)
+        quantities *= 0.8
+    if block_bids is not None and (7 <= hour < 11 or 17 <= hour < 21):
+        high_price_mask = (prices > np.percentile(prices, 70)) & (block_bids == 0)
+        quantities[high_price_mask] = np.random.uniform(base_mean * 1.3, max_val, np.sum(high_price_mask))
+        low_price_block_mask = (prices < np.percentile(prices, 40)) & (block_bids == 1)
+        quantities[low_price_block_mask] = np.random.uniform(base_mean, max_val * 0.9, np.sum(low_price_block_mask))
+    quantities = quantities + noise
+    return np.clip(quantities, min_val, max_val).astype(int)
+
+# Time-dependent price adjustment 
+def time_adjustment(hour):
+    if hour in [8, 18]:
+        return 1.7  # 70% spike
+    if 7 <= hour < 11 or 17 <= hour < 21:
+        return 1.4  # 40% increase during peak hours
+    return 0.8  # 20% decrease during off-peak hours
+
+# Set random seed for reproducibility
+np.random.seed(0)
+
+# Set of the adjacent matrix of linked block orders 
+A_LB = []
+for a in Area:
+    A_LB_a = np.zeros([n_Demand[a] + n_Supply[a], n_Demand[a] + n_Supply[a]])
+    for i in range(n_E_Demand[a] + n_E_Supply[a], n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a]):
+        pick_number_parents = np.random.randint(1, 5)  # Increase density
+        for j in [np.random.randint(i, n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a]) for _ in range(pick_number_parents)]:
+            if j != i:
+                A_LB_a[i, j] = 1
+    A_LB.append(A_LB_a)
+
+# Set of the adjacent matrix of the exclusive block orders 
+A_EG = []
+n_groups = []
+for a in Area:
+    A_EG_a = np.zeros([n_Demand[a] + n_Supply[a], n_Demand[a] + n_Supply[a]])
+    n_groups_a = np.random.randint(6, n_PB_Demand[a] + n_PB_Supply[a] + 1)  # More groups
+    for i in range(n_E_Demand[a] + n_E_Supply[a], n_E_Demand[a] + n_E_Supply[a] + n_groups_a):
+        pick_number_in_EG = np.random.randint(3, 8)  # Increase density
+        for j in [np.random.randint(n_E_Demand[a] + n_E_Supply[a], n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a]) for _ in range(pick_number_in_EG)]:
+            A_EG_a[i, j] = 1
+    n_groups.append(n_groups_a)
+    A_EG.append(A_EG_a)
+
+# Initialize arrays 
+Price_E_Demand_t = []
+Price_E_Supply_t = []
+Price_PB_Demand_t = []
+Price_PB_Supply_t = []
+Price_RB_Demand_t = []
+Price_RB_Supply_t = []
+Price_FHB_Demand_t = []
+Price_FHB_Supply_t = []
+
+Quantity_E_Demand_t = []
+Quantity_E_Supply_t = []
+Quantity_PB_Demand_t = []
+Quantity_PB_Supply_t = []
+Quantity_RB_Demand_t = []
+Quantity_RB_Supply_t = []
+Quantity_FHB_Demand_t = []
+Quantity_FHB_Supply_t = []
+
+# Block bid indicators for PB and RB supply
+Block_Bid_PB_Supply_t = []
+Block_Bid_RB_Supply_t = []
+for a in Area:
+    Price_E_Demand_t.append(np.zeros((n_T, n_E_Demand[a])))
+    Price_E_Supply_t.append(np.zeros((n_T, n_E_Supply[a])))
+    Price_PB_Demand_t.append(np.zeros((n_T, n_PB_Demand[a])))
+    Price_PB_Supply_t.append(np.zeros((n_T, n_PB_Supply[a])))
+    Price_RB_Demand_t.append(np.zeros((n_T, n_RB_Demand[a])))
+    Price_RB_Supply_t.append(np.zeros((n_T, n_RB_Supply[a])))
+    Price_FHB_Demand_t.append(np.zeros((n_T, n_FHB_Demand[a])))
+    Price_FHB_Supply_t.append(np.zeros((n_T, n_FHB_Supply[a])))
+
+    Quantity_E_Demand_t.append(np.zeros((n_T, n_E_Demand[a]), dtype=int))
+    Quantity_E_Supply_t.append(np.zeros((n_T, n_E_Supply[a]), dtype=int))
+    Quantity_PB_Demand_t.append(np.zeros((n_T, n_PB_Demand[a]), dtype=int))
+    Quantity_PB_Supply_t.append(np.zeros((n_T, n_PB_Supply[a]), dtype=int))
+    Quantity_RB_Demand_t.append(np.zeros((n_T, n_RB_Demand[a]), dtype=int))
+    Quantity_RB_Supply_t.append(np.zeros((n_T, n_RB_Supply[a]), dtype=int))
+    Quantity_FHB_Demand_t.append(np.zeros((n_T, n_FHB_Demand[a]), dtype=int))
+    Quantity_FHB_Supply_t.append(np.zeros((n_T, n_FHB_Supply[a]), dtype=int))
+
+    Block_Bid_PB_Supply_t.append(np.zeros((n_T, n_PB_Supply[a]), dtype=int))
+    Block_Bid_RB_Supply_t.append(np.zeros((n_T, n_RB_Supply[a]), dtype=int))
+
+# Generate data 
+for a in Area:
+    for t in range(n_T):
+        # Energy market (E)
+        Price_E_Supply_t[a][t] = generate_prices_tech(a, t, 30, 'supply', n_E_Supply[a])
+        Price_E_Demand_t[a][t] = generate_prices_tech(a, t, 55, 'demand', n_E_Demand[a])
+        Quantity_E_Supply_t[a][t] = generate_quantities(Price_E_Supply_t[a][t], 800, 100, n_E_Supply[a], 500, 1200, t, a=a)
+        Quantity_E_Demand_t[a][t] = generate_quantities(Price_E_Demand_t[a][t], 700, 80, n_E_Demand[a], 400, 1000, t, a=a)
+        
+        # Profile block market (PB)
+        Price_PB_Supply_t[a][t] = generate_prices_tech(a, t, 35, 'supply', n_PB_Supply[a])
+        Price_PB_Demand_t[a][t] = generate_prices_tech(a, t, 60, 'demand', n_PB_Demand[a])
+        Block_Bid_PB_Supply_t[a][t] = np.random.binomial(1, 0.6, size=n_PB_Supply[a])  # 60% block bids
+        Quantity_PB_Supply_t[a][t] = generate_quantities(Price_PB_Supply_t[a][t], 250, 40, n_PB_Supply[a], 150, 400, t, block_bids=Block_Bid_PB_Supply_t[a][t], a=a)
+        Quantity_PB_Demand_t[a][t] = generate_quantities(Price_PB_Demand_t[a][t], 200, 30, n_PB_Demand[a], 100, 300, t, a=a)
+        
+        # Regular block market (RB)
+        Price_RB_Supply_t[a][t] = generate_prices_tech(a, t, 40, 'supply', n_RB_Supply[a])
+        Price_RB_Demand_t[a][t] = generate_prices_tech(a, t, 65, 'demand', n_RB_Demand[a])
+        Block_Bid_RB_Supply_t[a][t] = np.random.binomial(1, 0.6, size=n_RB_Supply[a])  # 60% block bids
+        Quantity_RB_Supply_t[a][t] = generate_quantities(Price_RB_Supply_t[a][t], 800, 100, n_RB_Supply[a], 500, 1200, t, block_bids=Block_Bid_RB_Supply_t[a][t], a=a)
+        Quantity_RB_Demand_t[a][t] = generate_quantities(Price_RB_Demand_t[a][t], 500, 60, n_RB_Demand[a], 300, 700, t, a=a)
+        
+        # Flexible hourly block market (FHB)
+        Price_FHB_Supply_t[a][t] = generate_prices_tech(a, t, 50, 'supply', n_FHB_Supply[a])
+        Price_FHB_Demand_t[a][t] = generate_prices_tech(a, t, 75, 'demand', n_FHB_Demand[a])
+        Quantity_FHB_Supply_t[a][t] = generate_quantities(Price_FHB_Supply_t[a][t], 2500, 300, n_FHB_Supply[a], 1500, 4000, t, a=a)
+        Quantity_FHB_Demand_t[a][t] = generate_quantities(Price_FHB_Demand_t[a][t], 1500, 200, n_FHB_Demand[a], 1000, 2500, t, a=a)
+
+# Profile block order minimum acceptance ratios 
+n_PB = []
+R_min = []
+for a in Area:
+    n_PB.append(n_PB_Demand[a] + n_PB_Supply[a])
+    np.random.seed(2)
+    R_min_a = [np.random.uniform(0.1, 0.3) for _ in range(n_PB[a])]  # Lowered for flexibility
+    for i in range(n_PB[a]):
+        R_min_a[i] = round(R_min_a[i], 2)
+    R_min.append(R_min_a)
+
+# Load gradient conditions 
+n_sld= []
+G_up = []
+G_down = []
+for a in Area:
+    n_sld.append(n_E_Supply[a])
+    np.random.seed(4)
+    G_up_a = [np.random.uniform(3, 4) for _ in range(n_sld[a])]  # Adjusted for tighter constraints
+    G_down_a = [np.random.uniform(3, 4) for _ in range(n_sld[a])]
+    for i in range(n_sld[a]):
+        G_up_a[i] = round(G_up_a[i], 2)
+        G_down_a[i] = round(G_down_a[i], 2)
+    G_up.append(G_up_a)
+    G_down.append(G_down_a)
+
+# Store in dictionary 
+data_dict = {}
+data_dict['price'] = {}
+data_dict['quantity'] = {}
+data_dict['zone_names'] = zone_names
+data_dict['zone_data'] = zone_data  # parameters of each bidding zone (P_max, ramp_h/d_%, shares)
+data_dict['lines'] = lines  #lines (number: 17 + ramping)
+data_dict['ramping_groups'] = ramping_groups
+data_dict['prev_hour_injection'] = prev_hour_injection  #t=-1 injection
+data_dict['prev_day_avg_injection'] = prev_day_avg_injection  # The average of previous day
+data_dict['prev_hour_flow'] = prev_hour_flow  # t=-1 flow
+
+for a in Area:
+    data_dict['price'][a] = {}
+    data_dict['quantity'][a] = {}
+    for t in range(n_T):
+        data_dict['price'][a][t] = {}
+        data_dict['quantity'][a][t] = {}
+        data_dict['price'][a][t]['E'] = {}
+        data_dict['price'][a][t]['PB'] = {}
+        data_dict['price'][a][t]['RB'] = {}
+        data_dict['price'][a][t]['FHB'] = {}
+        data_dict['quantity'][a][t]['E'] = {}
+        data_dict['quantity'][a][t]['PB'] = {}
+        data_dict['quantity'][a][t]['RB'] = {}
+        data_dict['quantity'][a][t]['FHB'] = {}
+for a in Area:
+    for t in range(n_T):
+        data_dict['price'][a][t]['E']['demand'] = Price_E_Demand_t[a][t][:]
+        data_dict['price'][a][t]['E']['supply'] = Price_E_Supply_t[a][t][:]
+        data_dict['quantity'][a][t]['E']['demand'] = Quantity_E_Demand_t[a][t][:]
+        data_dict['quantity'][a][t]['E']['supply'] = Quantity_E_Supply_t[a][t][:]
+        data_dict['price'][a][t]['PB']['demand'] = Price_PB_Demand_t[a][t][:]
+        data_dict['price'][a][t]['PB']['supply'] = Price_PB_Supply_t[a][t][:]
+        data_dict['quantity'][a][t]['PB']['demand'] = Quantity_PB_Demand_t[a][t][:]
+        data_dict['quantity'][a][t]['PB']['supply'] = Quantity_PB_Supply_t[a][t][:]
+        data_dict['price'][a][t]['RB']['demand'] = Price_RB_Demand_t[a][t][:]
+        data_dict['price'][a][t]['RB']['supply'] = Price_RB_Supply_t[a][t][:]
+        data_dict['quantity'][a][t]['RB']['demand'] = Quantity_RB_Demand_t[a][t][:]
+        data_dict['quantity'][a][t]['RB']['supply'] = Quantity_RB_Supply_t[a][t][:]
+        data_dict['price'][a][t]['FHB']['demand'] = Price_FHB_Demand_t[a][t][:]
+        data_dict['price'][a][t]['FHB']['supply'] = Price_FHB_Supply_t[a][t][:]
+        data_dict['quantity'][a][t]['FHB']['demand'] = Quantity_FHB_Demand_t[a][t][:]
+        data_dict['quantity'][a][t]['FHB']['supply'] = Quantity_FHB_Supply_t[a][t][:]
+
+data_dict['PB'] = {}
+data_dict['PB']['Rmin'] = {}
+for a in Area:
+    data_dict['PB']['Rmin'][a] = R_min[a]
+
+data_dict['n_E'] = {}    
+data_dict['n_RB'] = {}
+data_dict['n_PB'] = {}
+data_dict['n_FHB'] = {}
+
+data_dict['n_E']['n_d'] = {}
+data_dict['n_E']['n_s'] = {}
+data_dict['n_RB']['n_d'] = {} 
+data_dict['n_RB']['n_s'] = {}
+data_dict['n_PB']['n_d'] = {} 
+data_dict['n_PB']['n_s'] = {}
+data_dict['n_FHB']['n_d']= {}
+data_dict['n_FHB']['n_s'] = {}
+for a in Area:
+    [data_dict['n_E']['n_d'][a], data_dict['n_E']['n_s'][a]] = [len(data_dict['price'][a][0]['E']['demand']), len(data_dict['price'][a][0]['E']['supply'])]
+    [data_dict['n_RB']['n_d'][a], data_dict['n_RB']['n_s'][a]] = [len(data_dict['price'][a][0]['RB']['demand']), len(data_dict['price'][a][0]['RB']['supply'])]
+    [data_dict['n_PB']['n_d'][a], data_dict['n_PB']['n_s'][a]] = [len(data_dict['price'][a][0]['PB']['demand']), len(data_dict['price'][a][0]['PB']['supply'])]
+    [data_dict['n_FHB']['n_d'][a], data_dict['n_FHB']['n_s'][a]] = [len(data_dict['price'][a][0]['FHB']['demand']), len(data_dict['price'][a][0]['FHB']['supply'])]
+
+# Number of nonzero A_LB 
+data_dict['n_LB'] = {}
+data_dict['LB'] ={}
+data_dict['n_EG']={}
+data_dict['EG']={}
+data_dict['slgG'] = {}  
+data_dict['slgG']['down'] = {}
+data_dict['slgG']['up'] ={}
+data_dict['slgG']['group'] ={}
+for a in Area:
+    shape = A_LB[a].shape
+    count = 0
+    for j in range(shape[0]):
+        if A_LB[a][j][:].any():
+            count += 1
+    data_dict['n_LB'][a] = count
+    data_dict['LB'][a] = A_LB[a][n_E_Demand[a]+ n_E_Supply[a] : n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a], 
+                        n_E_Demand[a] + n_E_Supply[a] : n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a]]
+    data_dict['n_EG'][a] = n_groups[a]
+    data_dict['EG'][a] = A_EG[a][n_E_Demand[a] + n_E_Supply[a] : n_E_Demand[a] + n_E_Supply[a] + n_groups[a], 
+                        n_E_Demand[a] + n_E_Supply[a] : n_E_Demand[a] + n_E_Supply[a] + n_PB_Demand[a] + n_PB_Supply[a] + n_RB_Demand[a] + n_RB_Supply[a]]
+    data_dict['slgG']['down'][a] = G_down[a]
+    data_dict['slgG']['up'][a] = G_up[a]
+    data_dict['slgG']['group'][a] = range(n_E_Demand[a], n_E_Demand[a] + n_E_Supply[a])
+    
+# np.savez('./data_nordic_physical_final.npz', **data_dict)
+np.save('./data_nordic_physical_final.npy', data_dict, allow_pickle=True)
+
+print("Code executed successfully!")
+print("contains:")
+print("  - Network injection asymmetric ramping (up/down, hourly/daily)")
+print("  - Six Line Sets asymmetric ramping")
+print("  - Real seventeen lines + initial status")
+print("document: data_nordic_physical_final.npz")
