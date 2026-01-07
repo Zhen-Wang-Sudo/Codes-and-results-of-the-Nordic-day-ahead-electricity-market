@@ -1,6 +1,7 @@
 import numpy as np
 import pyomo.environ as pyo
 from pyomo.environ import *
+import matplotlib.pyplot as plt
 
 #Load the stored data
 #data = np.load('./data_primary.npz', allow_pickle = True)
@@ -552,15 +553,15 @@ for t in model.T:
 #Compute the revenue of the TSOs
 print('The revenue of each TSO according to fix binary-variable pricing starts here: \n')
 for l in model.Lines:
-    print(sum((system_price[data['lines'][l][1]][t] - system_price[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T))
+    print('%.2f' %( sum((system_price[data['lines'][l][1]][t] - system_price[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T)))
 print('The sum of the revenue of each TSO according to fix binary-variable pricing starts here: \n')
-print(sum((system_price[data['lines'][l][1]][t] - system_price[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T for l in model.Lines))
+print('%.2f'%( sum((system_price[data['lines'][l][1]][t] - system_price[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T for l in model.Lines)))
 
 print('The revenue of each TSO according to ALD pricing starts here: \n')
 for l in model.Lines:
-    print(sum((system_price_new[data['lines'][l][1]][t] - system_price_new[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T))
+    print('%.2f'%(sum((system_price_new[data['lines'][l][1]][t] - system_price_new[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T)))
 print('The sum of the revenue of each TSO according to ALD pricing starts here: \n')
-print(sum((system_price_new[data['lines'][l][1]][t] - system_price_new[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T for l in model.Lines))
+print('%.2f'%(sum((system_price_new[data['lines'][l][1]][t] - system_price_new[data['lines'][l][0]][t]) * pyo.value(model.f[l, t]) for t in model.T for l in model.Lines)))
 
 print('The profit of each demand elementary order starts here: \n')
 # for t in model.T:
@@ -718,40 +719,164 @@ for a in range(12):
         value1_float = float(value1[0])
         value2_float = float(value2[0])
         if (value1_float < 0 and value2_float >0):
-            print(a, key1, value1_float, key2, value2_float)
+            print(a, key1, round(value1_float, 2), key2, round(value2_float, 2))
 
 print('The PAOs that the ALD pricing mechanism eliminates from the fixing binary-variable pricing mechanism starts here:')
 for a in model.Area:
     for i in range(model.Ed[a]):
         if (welfare_Ed_old[a][i] < 0 and welfare_Ed[a][i] > 0):
-            print(a, 'Ed', welfare_Ed_old[a][i], welfare_Ed[a][i])
+            print(a, 'Ed', round(welfare_Ed_old[a][i],2), round(welfare_Ed[a][i], 2))
     for i in range(model.Ed[a], model.E[a]):
         if (welfare_Es_old[a][i] < 0 and welfare_Es[a][i] > 0):
-            print(a, 'Es', welfare_Es_old[a][i], welfare_Es[a][i])
+            print(a, 'Es', round(welfare_Es_old[a][i],2), round(welfare_Es[a][i],2))
     for i in range(model.E[a], model.E[a] + model.PBd[a]):
         if (welfare_pbd_old[a][i] < 0 and welfare_pbd[a][i] > 0):
-            print(a, 'PBd', welfare_pbd_old[a][i], welfare_pbd[a][i])
+            print(a, 'PBd', round(welfare_pbd_old[a][i],2), round(welfare_pbd[a][i],2))
     for i in range(model.E[a] + model.PBd[a], model.E[a] +model.PB[a], 1):
         if (welfare_pbs_old[a][i] < 0 and welfare_pbs[a][i] > 0):
-            print(a, 'PBs', welfare_pbs_old[a][i], welfare_pbs[a][i])
+            print(a, 'PBs', round(welfare_pbs_old[a][i],2), round(welfare_pbs[a][i],2))
     for i in range(model.E[a] + model.PB[a], model.E[a] + model.PB[a] + model.RBd[a]):
         if (welfare_rbd_old[a][i] < 0 and welfare_rbd[a][i] > 0):
-            print(a, 'RBd', welfare_rbd_old[a][i], welfare_rbd[a][i])
+            print(a, 'RBd', round(welfare_rbd_old[a][i],2), round(welfare_rbd[a][i],2))
     for i in range(model.E[a] + model.PB[a] + model.RBd[a], model.E[a] + model.PB[a] + model.RB[a], 1):
         if (welfare_rbs_old[a][i] < 0 and welfare_rbs[a][i] > 0):
-            print(a, 'RBs', welfare_rbs_old[a][i], welfare_rbs[a][i])
+            print(a, 'RBs', round(welfare_rbs_old[a][i],2), round(welfare_rbs[a][i],2))
     for i in range(model.E[a] + model.RB[a] + model.PB[a], model.E[a] + model.PB[a] + model.RB[a] + model.FHBd[a]):
         if (welfare_fhbd_old[a][i] < 0 and welfare_fhbd[a][i] > 0):
-            print(a, 'FHBd', welfare_fhbd_old[a][i], welfare_fhbd[a][i])
+            print(a, 'FHBd', round(welfare_fhbd_old[a][i],2), round(welfare_fhbd[a][i],2))
     for i in range(model.E[a] + model.PB[a] + model.RB[a] + model.FHBd[a], model.E[a] + model.PB[a] + model.RB[a] + model.FHB[a], 1):
         if (welfare_fhbs_old[a][i] < 0 and welfare_fhbs[a][i] > 0):
-            print(a, 'FHBs', welfare_fhbs_old[a][i], welfare_fhbs[a][i])
+            print(a, 'FHBs', round(welfare_fhbs_old[a][i],2), round(welfare_fhbs[a][i],2))
         
-    
 
-# for a in model.Area:
-#     for t in model.T:
-#         print('%.2f, %.2f' %(-LP_dual_fix[a][t], t))
 
-# for a in model.Area:
-#     print(nEd[a], nEs[a], nPBd[a], nPBs[a], nRBd[a], nRBs[a], nFHBd[a], nFHBs[a])     
+y_1= []
+y_2 =[]
+for i in T:
+    y_1.append(system_price[0][i])
+    y_2.append(system_price_new[0][i])
+x_axis = np.arange(1,25,1)
+fig = plt.figure()
+ax1 = fig.add_subplot(221)
+ax1.plot(x_axis, y_1 , marker='o', linestyle='-', color='b', label='Fix binary-variable pricing')
+ax1.plot(x_axis, y_2, marker='s', linestyle='-', color='k', label='ALD pricing')
+#ax1.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+#ax1.set_xlabel('The time slot') 
+ax1.set_ylabel('The LMP')  
+ax1.legend()
+ax1.grid(True)
+
+y_1= []
+y_2 =[]
+for i in T:
+    y_1.append(system_price[2][i])
+    y_2.append(system_price_new[2][i])
+x_axis = np.arange(1,25,1)
+ax2 = fig.add_subplot(222)
+ax2.plot(x_axis, y_1 , marker='o', linestyle='-', color='b', label='Fix binary-variable pricing')
+ax2.plot(x_axis, y_2, marker='s', linestyle='-', color='k', label='ALD pricing')
+#ax2.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+#ax2.set_xlabel('The time slot') 
+#ax2.set_ylabel('The LMP')   
+#ax2.legend()
+ax2.grid(True)
+
+y_1= []
+y_2 =[]
+for i in T:
+    y_1.append(system_price[6][i])
+    y_2.append(system_price_new[6][i])
+x_axis = np.arange(1,25,1)
+ax3 = fig.add_subplot(223)
+ax3.plot(x_axis, y_1 , marker='o', linestyle='-', color='b', label='Fix binary-variable pricing')
+ax3.plot(x_axis, y_2, marker='s', linestyle='-', color='k', label='ALD pricing')
+#ax3.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+ax3.set_xlabel('The time slot') 
+ax3.set_ylabel('The LMP')  
+#ax3.legend()
+ax3.grid(True)
+
+y_1= []
+y_2 =[]
+for i in T:
+    y_1.append(system_price[10][i])
+    y_2.append(system_price_new[10][i])
+x_axis = np.arange(1,25,1)
+ax4 = fig.add_subplot(224)
+ax4.plot(x_axis, y_1 , marker='o', linestyle='-', color='b', label='Fix binary-variable pricing')
+ax4.plot(x_axis, y_2, marker='s', linestyle='-', color='k', label='ALD pricing')
+#ax4.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+ax4.set_xlabel('The time slot') 
+#ax4.set_ylabel('The LMP')  
+#ax4.legend()
+ax4.grid(True)
+
+plt.show()
+fig.savefig('The locational marginal prices of four bidding areas', dpi = 300)
+
+
+
+y_1= []
+y_2 =[]
+for t in T:
+    y_1.append((system_price[data['lines'][2][1]][t] - system_price[data['lines'][2][0]][t]))
+    y_2.append((system_price_new[data['lines'][2][1]][t] - system_price_new[data['lines'][2][0]][t]))
+x_axis = np.arange(1,25,1)
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(221)
+ax1.plot(x_axis, y_1 , marker='o', linestyle='-', color='#0077BB', label='Fix binary-variable pricing')
+ax1.plot(x_axis, y_2, marker='s', linestyle='-', color='#EE7733', label='ALD pricing')
+#ax1.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+#ax1.set_xlabel('The time slot') 
+ax1.set_ylabel('The congestion price')  
+ax1.legend()
+ax1.grid(True)
+
+y_1= []
+y_2 =[]
+for t in T:
+    y_1.append((system_price[data['lines'][8][1]][t] - system_price[data['lines'][8][0]][t]))
+    y_2.append((system_price_new[data['lines'][8][1]][t] - system_price_new[data['lines'][8][0]][t]))
+x_axis = np.arange(1,25,1)
+ax2 = fig1.add_subplot(222)
+ax2.plot(x_axis, y_1 , marker='o', linestyle='-', color='#0077BB', label='Fix binary-variable pricing')
+ax2.plot(x_axis, y_2, marker='s', linestyle='-', color='#EE7733', label='ALD pricing')
+#ax2.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+#ax2.set_xlabel('The time slot') 
+#ax2.set_ylabel('The congestion price')   
+#ax2.legend()
+ax2.grid(True)
+
+y_1= []
+y_2 =[]
+for t in T:
+    y_1.append((system_price[data['lines'][11][1]][t] - system_price[data['lines'][11][0]][t]))
+    y_2.append((system_price_new[data['lines'][11][1]][t] - system_price_new[data['lines'][11][0]][t]))
+x_axis = np.arange(1,25,1)
+ax3 = fig1.add_subplot(223)
+ax3.plot(x_axis, y_1 , marker='o', linestyle='-', color='#0077BB', label='Fix binary-variable pricing')
+ax3.plot(x_axis, y_2, marker='s', linestyle='-', color='#EE7733', label='ALD pricing')
+#ax3.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+ax3.set_xlabel('The time slot') 
+ax3.set_ylabel('The congestion price')  
+#ax3.legend()
+ax3.grid(True)
+
+y_1= []
+y_2 =[]
+for t in T:
+    y_1.append((system_price[data['lines'][14][1]][t] - system_price[data['lines'][14][0]][t]))
+    y_2.append((system_price_new[data['lines'][14][1]][t] - system_price_new[data['lines'][14][0]][t]))
+x_axis = np.arange(1,25,1)
+ax4 = fig1.add_subplot(224)
+ax4.plot(x_axis, y_1 , marker='o', linestyle='-', color='#0077BB', label='Fix binary-variable pricing')
+ax4.plot(x_axis, y_2, marker='s', linestyle='-', color='#EE7733', label='ALD pricing')
+#ax4.set_title('The comparison of fixing binary-variable pricing and ALD pricing')  
+ax4.set_xlabel('The time slot') 
+#ax4.set_ylabel('The congestion price')  
+#ax4.legend()
+ax4.grid(True)
+
+plt.show()
+fig1.savefig('The congestion rent prices of four lines', dpi = 300)
+
